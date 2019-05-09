@@ -13,7 +13,7 @@ class Bot(object):
 
     def __init__(self):
         self._load_config()
-        self._client = Client()
+        self._client = Client(activity=Game('140'), status=Status.dnd if DEBUG else Status.online)
         self._140_emoji = None
         self._reaction_conditions = {
             '140 in message': lambda message: '140' in message.content,
@@ -23,11 +23,6 @@ class Bot(object):
         @self._client.event
         async def on_ready():
             self._140_emoji = self._client.get_emoji(_140_EMOJI_ID)
-            try:
-                await self._client.change_presence(activity=Game('140'),
-                                                   status=Status.dnd if DEBUG else Status.online)
-            except DiscordException as e:
-                print(f'Error changing presence: {e}')
 
         @self._client.event
         async def on_message(message):
