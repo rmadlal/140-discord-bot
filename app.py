@@ -3,9 +3,10 @@ import json
 import sys
 
 CONFIG = 'config.json'
-_140 = '140'
 _140_EMOJI_ID = 447884638049009686
 _140_IRL_CHANNEL_ID = 329682110019534849
+TEST_GUILD_ID = 575414432478527488
+DEBUG = False
 
 
 class Bot(object):
@@ -14,6 +15,10 @@ class Bot(object):
         self._load_config()
         self._client = discord.Client()
         self._140_emoji = None
+        self._on_message_conditions = {
+            '140 in message': lambda message: '140' in message.content,
+            '#140_irl attachment': lambda message: message.channel.id == _140_IRL_CHANNEL_ID and message.attachments
+        }
 
         @self._client.event
         async def on_ready():
@@ -22,29 +27,32 @@ class Bot(object):
         @self._client.event
         async def on_message(message):
             """
-            React to a message containing '140' or posted in #140_irl with attachments
-            with the 140 emoji.
+            React with the 140 emoji to a message meeting one of the specified conditions.
             """
-            if not self._should_act(message.author):
+            if not self._should_act(message):
                 return
-            if not (_140 in message.content or (message.channel.id == _140_IRL_CHANNEL_ID and message.attachments)):
+            if not any(cond(message) for cond in self._on_message_conditions.values()):
                 return
             try:
                 print(f'Sending reaction on message: {message}')
+                if DEBUG:
+                    print('Condition(s) met: ' +
+                          ', '.join(f'"{name}"' for name, cond in self._on_message_conditions.items() if cond(message)))
                 await message.add_reaction(self._140_emoji)
             except discord.DiscordException as e:
                 print(f'Reaction failed: {str(e)}', file=sys.stderr)
 
         @self._client.event
-        async def on_reaction_add(reaction, user):
+        async def on_reaction_add(reaction, _):
             """ Add a 140 emoji reaction to a message that just got one. """
-            if not self._should_act(user):
+            message = reaction.message
+            if not self._should_act(message):
                 return
-            if reaction.emoji != self._140_emoji:
+            if reaction.me or reaction.emoji != self._140_emoji:
                 return
             try:
-                print(f'Adding reaction to message: {reaction.message}')
-                await reaction.message.add_reaction(self._140_emoji)
+                print(f'Adding reaction to message: {message}')
+                await message.add_reaction(self._140_emoji)
             except discord.DiscordException as e:
                 print(f'Reaction failed: {str(e)}', file=sys.stderr)
 
@@ -52,14 +60,18 @@ class Bot(object):
         config = json.load(open(CONFIG))
         self._token = config['token']
 
-    def _should_act(self, user):
-        return not (user == self._client.user or self._140_emoji is None)
+    def _should_act(self, message):
+        return (not DEBUG or message.guild.id == TEST_GUILD_ID) \
+               and message.author != self._client.user
 
     def run(self):
         self._client.run(self._token)
 
 
 def main():
+    global DEBUG
+    if '-d' in sys.argv or '--debug' in sys.argv:
+        DEBUG = True
     Bot().run()
 
 
