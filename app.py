@@ -1,23 +1,28 @@
 import sys
 import json
-from discord import Client, Game, Status, DiscordException
+from discord import Client, Game, Status, Message, Reaction, DiscordException
+import logging
 
 CONFIG = 'config.json'
+DEBUG = False
 _140_EMOJI_ID = 447884638049009686
 _140_IRL_CHANNEL_ID = 329682110019534849
-TEST_GUILD_ID = 575414432478527488
-DEBUG = False
+_140_GAME = Game('140')
 
 
 class Bot(object):
 
     def __init__(self):
-        self._load_config()
-        self._client = Client(activity=Game('140'), status=Status.dnd if DEBUG else Status.online)
+        self._config = json.load(open(CONFIG))
+        self._client = Client(activity=_140_GAME, status=Status.dnd if DEBUG else Status.online)
         self._140_emoji = None
-        self._reaction_conditions = {
+        self._on_message_conditions = {
             '140 in message': lambda message: '140' in message.content,
             '#140_irl attachment': lambda message: message.channel.id == _140_IRL_CHANNEL_ID and message.attachments
+        }
+        self._reaction_add_conditions = {
+            '140 emoji': lambda reaction: reaction.emoji == self._140_emoji,
+            '1, 4, 0 emojis in order': self._has_140_in_order
         }
 
         @self._client.event
@@ -26,46 +31,70 @@ class Bot(object):
 
         @self._client.event
         async def on_message(message):
-            """
-            React with the 140 emoji to a message meeting one of the specified conditions.
-            """
-            if message.author == self._client.user:
-                return
-            if not any(cond(message) for cond in self._reaction_conditions.values()):
-                return
-            try:
-                print(f'Sending reaction on message: {message}')
-                if DEBUG:
-                    print('Condition(s) met: ' +
-                          ', '.join(f'"{name}"' for name, cond in self._reaction_conditions.items() if cond(message)))
-                await message.add_reaction(self._140_emoji)
-            except DiscordException as e:
-                print(f'Reaction failed: {e}', file=sys.stderr)
+            await self._140_reaction(message, self._on_message_conditions)
 
         @self._client.event
         async def on_reaction_add(reaction, _):
-            """ Add a 140 emoji reaction to a message that just got one. """
-            message = reaction.message
-            if reaction.me or reaction.emoji != self._140_emoji:
-                return
-            try:
-                print(f'Adding reaction to message: {message}')
-                await message.add_reaction(self._140_emoji)
-            except DiscordException as e:
-                print(f'Reaction failed: {e}', file=sys.stderr)
+            await self._140_reaction(reaction, self._reaction_add_conditions)
 
-    def _load_config(self):
-        config = json.load(open(CONFIG))
-        self._token = config['token']
+        # not sure if this is needed
+        # @self._client.event
+        # async def on_member_update(_, after):
+        #     if after != self._client.user:
+        #         return
+        #     try:
+        #         await self._client.change_presence(activity=_140_GAME, status=Status.dnd if DEBUG else Status.online)
+        #         if DEBUG:
+        #             print(f'Activity changed, restoring. Was {self._client.activity}')
+        #     except DiscordException as e:
+        #         print(f'Error updating presence: {e}', file=sys.stderr)
+
+    @staticmethod
+    def _get_message(model):
+        if isinstance(model, Message):
+            return model
+        if isinstance(model, Reaction):
+            return model.message
+        return None
+
+    @staticmethod
+    def _has_140_in_order(reaction):
+        one = '1⃣'
+        four = '4⃣'
+        zero = '0⃣'
+        reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
+        return all(i in reaction_emojis for i in [one, four, zero]) \
+            and reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
+
+    def _should_respond(self, model):
+        return (isinstance(model, Message) and model.author == self._client.user) \
+            or (isinstance(model, Reaction) and model.me)
+
+    async def _140_reaction(self, model=None, conditions=None):
+        conditions = conditions or {}
+        if self._should_respond(model):
+            return
+        if not any(cond(model) for cond in conditions.values()):
+            return
+        try:
+            message = self._get_message(model)
+            print(f'Adding reaction to message: {message}')
+            await message.add_reaction(self._140_emoji)
+            if DEBUG:
+                print('Condition(s) met: ' + ', '.join(
+                      f'"{name}"' for name, cond in conditions.items() if cond(model)))
+        except DiscordException as e:
+            print(f'Reaction failed: {e}', file=sys.stderr)
 
     def run(self):
-        self._client.run(self._token)
+        self._client.run(self._config['token'])
 
 
 def main():
     global DEBUG
     if '-d' in sys.argv or '--debug' in sys.argv:
         DEBUG = True
+        logging.basicConfig(level=logging.DEBUG)
     Bot().run()
 
 
