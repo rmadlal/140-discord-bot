@@ -1,7 +1,7 @@
-import sys
 import json
-from discord import Client, Game, Status, Message, Reaction, DiscordException
 import logging
+import sys
+from discord import Client, Game, Status, Message, Reaction, DiscordException
 
 CONFIG = 'config.json'
 DEBUG = False
@@ -37,18 +37,6 @@ class Bot(object):
         async def on_reaction_add(reaction, _):
             await self._140_reaction(reaction, self._reaction_add_conditions)
 
-        # not sure if this is needed
-        # @self._client.event
-        # async def on_member_update(_, after):
-        #     if after != self._client.user:
-        #         return
-        #     try:
-        #         await self._client.change_presence(activity=_140_GAME, status=Status.dnd if DEBUG else Status.online)
-        #         if DEBUG:
-        #             print(f'Activity changed, restoring. Was {self._client.activity}')
-        #     except DiscordException as e:
-        #         print(f'Error updating presence: {e}', file=sys.stderr)
-
     @staticmethod
     def _get_message(model):
         if isinstance(model, Message):
@@ -59,20 +47,20 @@ class Bot(object):
 
     @staticmethod
     def _has_140_in_order(reaction):
-        one = '1⃣'
-        four = '4⃣'
-        zero = '0⃣'
+        one, four, zero = '1⃣', '4⃣', '0⃣'
         reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
-        return all(i in reaction_emojis for i in [one, four, zero]) \
-            and reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
+        try:
+            return reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
+        except ValueError:
+            return False
 
     def _should_respond(self, model):
-        return (isinstance(model, Message) and model.author == self._client.user) \
-            or (isinstance(model, Reaction) and model.me)
+        return (isinstance(model, Message) and model.author != self._client.user) \
+            or (isinstance(model, Reaction) and not model.me)
 
     async def _140_reaction(self, model=None, conditions=None):
         conditions = conditions or {}
-        if self._should_respond(model):
+        if not self._should_respond(model):
             return
         if not any(cond(model) for cond in conditions.values()):
             return
