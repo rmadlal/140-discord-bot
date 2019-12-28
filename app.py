@@ -4,6 +4,7 @@ import logging
 from discord import Client, Game, Status, Message, Reaction, DiscordException
 
 DEBUG = False
+TOKEN = os.getenv('BOT_TOKEN')
 _140_EMOJI_ID = 447884638049009686
 _140_IRL_CHANNEL_ID = 329682110019534849
 _140_GAME = Game('140')
@@ -45,7 +46,7 @@ class Bot:
 
     @staticmethod
     def _has_140_in_order(reaction):
-        one, four, zero = '1⃣', '4⃣', '0⃣'
+        one, four, zero = '1️⃣', '4️⃣', '0️⃣'
         reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
         try:
             return reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
@@ -73,7 +74,7 @@ class Bot:
             print(f'Reaction failed: {e}', file=sys.stderr)
 
     def run(self):
-        self._client.run(os.getenv('BOT_TOKEN'))
+        self._client.run(TOKEN)
 
 
 def main():
