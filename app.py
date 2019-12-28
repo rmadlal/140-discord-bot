@@ -45,12 +45,12 @@ class Bot:
 
     @staticmethod
     def _has_140_in_order(reaction):
-        one = '1️⃣'
-        four = '4️⃣'
-        zero = '0️⃣'
+        one, four, zero = '1⃣', '4⃣', '0⃣'
         reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
-        return all(i in reaction_emojis for i in [one, four, zero]) \
-            and reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
+        try:
+            return reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
+        except ValueError:
+            return False
 
     def _should_respond(self, model):
         return (isinstance(model, Message) and model.author != self._client.user) \
