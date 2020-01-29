@@ -1,51 +1,73 @@
+import asyncio
+import logging
 import os
 import sys
-import logging
-from discord import Client, Game, Status, Message, Reaction, DiscordException
+import time
+from threading import Thread
+from typing import Callable, Final, Optional, Union
 
-DEBUG = False
-TOKEN = os.getenv('BOT_TOKEN')
-_140_EMOJI_ID = 447884638049009686
-_140_IRL_CHANNEL_ID = 329682110019534849
-_140_GAME = Game('140')
+import schedule
+from discord import Client, DiscordException, Emoji, Game, Message, Reaction, User, TextChannel
+
+TOKEN: Final = os.getenv('BOT_TOKEN')
+_140_EMOJI_ID: Final = 447884638049009686
+_140_IRL_CHANNEL_ID: Final = 329682110019534849
+RACES_CHANNEL_ID: Final = 187112305505468417
+ZET_ID: Final = 123160659130056708
+GAMEGUY_ID: Final = 93504619614834688
 
 
 class Bot:
 
     def __init__(self):
-        self._client = Client(activity=_140_GAME, status=Status.dnd if DEBUG else Status.online)
-        self._140_emoji = None
-        self._on_message_conditions = {
-            '140 in message': lambda message: '140' in message.content,
-            '#140_irl attachment': lambda message: message.channel.id == _140_IRL_CHANNEL_ID and message.attachments
-        }
-        self._reaction_add_conditions = {
-            '140 emoji': lambda reaction: reaction.emoji == self._140_emoji,
-            '1, 4, 0 emojis in order': self._has_140_in_order
-        }
+        self._client = Client(activity=Game('140'))
+
+        self._on_message_conditions = [
+            lambda message: '140' in message.content,
+            lambda message: message.channel.id == _140_IRL_CHANNEL_ID and message.attachments
+        ]
+        self._on_reaction_add_conditions = [
+            lambda reaction: self._140_emoji and reaction.emoji == self._140_emoji,
+            self._has_140_in_order
+        ]
 
         @self._client.event
         async def on_ready():
-            self._140_emoji = self._client.get_emoji(_140_EMOJI_ID)
+            Thread(target=self.ping_racers_every_day).start()
 
         @self._client.event
-        async def on_message(message):
-            await self._140_reaction(message, self._on_message_conditions)
+        async def on_message(message: Message):
+            await self._140_reaction(message, *self._on_message_conditions)
 
         @self._client.event
-        async def on_reaction_add(reaction, _):
-            await self._140_reaction(reaction, self._reaction_add_conditions)
+        async def on_reaction_add(reaction: Reaction, _):
+            await self._140_reaction(reaction, *self._on_reaction_add_conditions)
+
+    @property
+    def _140_emoji(self) -> Optional[Emoji]:
+        return self._client.get_emoji(_140_EMOJI_ID)
+
+    @property
+    def _races_channel(self) -> Optional[TextChannel]:
+        return self._client.get_channel(RACES_CHANNEL_ID)
+
+    @property
+    def _zet(self) -> Optional[User]:
+        return self._client.get_user(ZET_ID)
+
+    @property
+    def _gameguy(self) -> Optional[User]:
+        return self._client.get_user(GAMEGUY_ID)
 
     @staticmethod
-    def _get_message(model):
+    def _get_message(model: Union[Message, Reaction]) -> Message:
         if isinstance(model, Message):
             return model
         if isinstance(model, Reaction):
             return model.message
-        return None
 
     @staticmethod
-    def _has_140_in_order(reaction):
+    def _has_140_in_order(reaction: Reaction) -> bool:
         one, four, zero = '1️⃣', '4️⃣', '0️⃣'
         reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
         try:
@@ -53,35 +75,37 @@ class Bot:
         except ValueError:
             return False
 
-    def _should_respond(self, model):
+    def _should_respond(self, model: Union[Message, Reaction]) -> bool:
         return (isinstance(model, Message) and model.author != self._client.user) \
-            or (isinstance(model, Reaction) and not model.me)
+               or (isinstance(model, Reaction) and not model.me)
 
-    async def _140_reaction(self, model=None, conditions=None):
-        conditions = conditions or {}
-        if not self._should_respond(model):
-            return
-        if not any(cond(model) for cond in conditions.values()):
+    async def _140_reaction(self, model: Union[Message, Reaction] = None, *conditions: Callable):
+        if not (self._should_respond(model) and any(cond(model) for cond in conditions)):
             return
         try:
             message = self._get_message(model)
-            print(f'Adding reaction to message: {message}')
             await message.add_reaction(self._140_emoji)
-            if DEBUG:
-                print('Condition(s) met: ' + ', '.join(
-                      f'"{name}"' for name, cond in conditions.items() if cond(model)))
         except DiscordException as e:
             print(f'Reaction failed: {e}', file=sys.stderr)
+
+    def ping_racers_every_day(self):
+        # wrap Channel.send() in a non-async function because schedule doesn't work with async
+        def send(message):
+            asyncio.run_coroutine_threadsafe(self._races_channel.send(message), self._client.loop)
+
+        schedule.every().day.at('16:00'). \
+            do(send, f'{self._zet.mention} {self._gameguy.mention} will you two race already?!')
+
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
 
     def run(self):
         self._client.run(TOKEN)
 
 
 def main():
-    global DEBUG
-    if '-d' in sys.argv or '--debug' in sys.argv:
-        DEBUG = True
-        logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG if '-d' in sys.argv or '--debug' in sys.argv else logging.ERROR)
     Bot().run()
 
 
