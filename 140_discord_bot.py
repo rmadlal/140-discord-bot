@@ -98,7 +98,7 @@ class Bot:
 
         while True:
             schedule.run_pending()
-            time.sleep(1)
+            time.sleep(60)
 
     def run(self):
         self._client.run(TOKEN)
