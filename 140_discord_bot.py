@@ -4,12 +4,13 @@ import os
 import sys
 import time
 from collections import namedtuple
-from operator import attrgetter
 from threading import Thread
-from typing import Callable, Final, Optional, Union
+from typing import Final, Optional
 
 import schedule
 from discord import Client, DiscordException, Emoji, Game, Message, RawReactionActionEvent, TextChannel, User
+
+from utils import ocr
 
 TOKEN: Final = os.getenv('BOT_TOKEN')
 _140_EMOJI_ID: Final = 447884638049009686
@@ -26,27 +27,20 @@ class Bot:
     def __init__(self):
         self._client = Client(activity=Game('140'))
 
-        self._on_message_conditions = [
-            lambda message: '140' in message.content,
-            lambda message: message.channel.id == _140_IRL_CHANNEL_ID and message.attachments
-        ]
-        self._on_reaction_add_conditions = [
-            lambda reaction: self._140_emoji and reaction.emoji == self._140_emoji,
-            self._has_140_in_order
-        ]
-
         @self._client.event
         async def on_ready():
             Thread(target=self._ping_racers_every_day).start()
 
         @self._client.event
         async def on_message(message: Message):
-            await self._140_reaction(message, *self._on_message_conditions)
+            if await self._should_react_to_message(message):
+                await self._add_140_reaction(message)
 
         @self._client.event
         async def on_raw_reaction_add(payload: RawReactionActionEvent):
             reaction = await self._init_reaction_from_raw(payload)
-            await self._140_reaction(reaction, *self._on_reaction_add_conditions)
+            if self._should_react_to_reaction(reaction):
+                await self._add_140_reaction(reaction.message)
 
     @property
     def _140_emoji(self) -> Optional[Emoji]:
@@ -64,6 +58,22 @@ class Bot:
     def _gameguy(self) -> Optional[User]:
         return self._client.get_user(GAMEGUY_ID)
 
+    async def _init_reaction_from_raw(self, payload: RawReactionActionEvent) -> Reaction:
+        message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+        user = self._client.get_user(payload.user_id)
+        return Reaction(payload.emoji, message, user)
+
+    async def _should_react_to_message(self, message: Message):
+        if message.author == self._client.user:
+            return False
+        if '140' in message.content:
+            return True
+        if message.channel.id == _140_IRL_CHANNEL_ID:
+            for attachment in message.attachments:
+                if '140' in ocr(await attachment.read()):
+                    return True
+        return False
+
     @staticmethod
     def _has_140_in_order(reaction: Reaction) -> bool:
         one, four, zero = '1️⃣', '4️⃣', '0️⃣'
@@ -73,27 +83,13 @@ class Bot:
         except ValueError:
             return False
 
-    @staticmethod
-    def _get_message(model: Union[Message, Reaction]) -> Message:
-        if isinstance(model, Message):
-            return model
-        if isinstance(model, Reaction):
-            return model.message
+    def _should_react_to_reaction(self, reaction: Reaction):
+        if reaction.user == self._client.user:
+            return False
+        return reaction.emoji == self._140_emoji or self._has_140_in_order(reaction)
 
-    async def _init_reaction_from_raw(self, payload: RawReactionActionEvent) -> Reaction:
-        message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
-        user = self._client.get_user(payload.user_id)
-        return Reaction(payload.emoji, message, user)
-
-    def _should_respond(self, model: Union[Message, Reaction]) -> bool:
-        get_user = {Message: attrgetter('author'), Reaction: attrgetter('user')}[type(model)]
-        return get_user(model) != self._client.user
-
-    async def _140_reaction(self, model: Union[Message, Reaction] = None, *conditions: Callable):
-        if not (self._should_respond(model) and any(cond(model) for cond in conditions)):
-            return
+    async def _add_140_reaction(self, message: Message):
         try:
-            message = self._get_message(model)
             await message.add_reaction(self._140_emoji)
         except DiscordException as e:
             print(f'Reaction failed: {e}', file=sys.stderr)
