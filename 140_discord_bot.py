@@ -5,12 +5,13 @@ import sys
 import time
 from collections import namedtuple
 from threading import Thread
-from typing import Final, Optional
+from typing import Final, Iterable, Optional
 
 import schedule
-from discord import Client, DiscordException, Emoji, Game, Message, RawReactionActionEvent, TextChannel, User
+from discord import Client, DiscordException, Emoji, Game, Message, RawMessageUpdateEvent, RawReactionActionEvent, \
+    TextChannel, User
 
-from utils import ocr
+from utils import ocr_from_url
 
 TOKEN: Final = os.getenv('BOT_TOKEN')
 _140_EMOJI_ID: Final = 447884638049009686
@@ -33,12 +34,21 @@ class Bot:
 
         @self._client.event
         async def on_message(message: Message):
-            if await self._should_react_to_message(message):
+            if self._should_react_to_message(message):
+                await self._add_140_reaction(message)
+
+        @self._client.event
+        async def on_raw_message_edit(payload: RawMessageUpdateEvent):
+            message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+            if self._should_react_to_message(message):
                 await self._add_140_reaction(message)
 
         @self._client.event
         async def on_raw_reaction_add(payload: RawReactionActionEvent):
-            reaction = await self._init_reaction_from_raw(payload)
+            message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+            user = self._client.get_user(payload.user_id)
+            reaction = Reaction(payload.emoji, message, user)
+
             if self._should_react_to_reaction(reaction):
                 await self._add_140_reaction(reaction.message)
 
@@ -58,20 +68,34 @@ class Bot:
     def _gameguy(self) -> Optional[User]:
         return self._client.get_user(GAMEGUY_ID)
 
-    async def _init_reaction_from_raw(self, payload: RawReactionActionEvent) -> Reaction:
-        message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
-        user = self._client.get_user(payload.user_id)
-        return Reaction(payload.emoji, message, user)
+    @staticmethod
+    def _potential_140_irl_sources(message: Message) -> Iterable[str]:
+        for embed in message.embeds:
+            if title := embed.title:
+                yield title
+            if description := embed.description:
+                yield description
+            if author := embed.author:
+                yield author.name
+            if footer := embed.footer:
+                yield footer.text
+        for embed in message.embeds:
+            if image := embed.image:
+                yield ocr_from_url(image.url)
+            if thumbnail := embed.thumbnail:
+                yield ocr_from_url(thumbnail.url)
+        for attachment in message.attachments:
+            if attachment.height or attachment.width:  # image or video
+                yield ocr_from_url(attachment.url)
 
-    async def _should_react_to_message(self, message: Message):
+    def _should_react_to_message(self, message: Message):
         if message.author == self._client.user:
             return False
         if '140' in message.content:
             return True
         if message.channel.id == _140_IRL_CHANNEL_ID:
-            for attachment in message.attachments:
-                if '140' in ocr(await attachment.read()):
-                    return True
+            if any('140' in s for s in self._potential_140_irl_sources(message)):
+                return True
         return False
 
     @staticmethod
