@@ -27,10 +27,13 @@ class Bot:
 
     def __init__(self):
         self._client = Client(activity=Game('140'))
+        self._ping_racers_thread = None
 
         @self._client.event
         async def on_ready():
-            Thread(target=self._ping_racers_every_day).start()
+            if not (self._ping_racers_thread and self._ping_racers_thread.is_alive()):
+                self._ping_racers_thread = Thread(target=self._ping_racers_every_day)
+                self._ping_racers_thread.start()
 
         @self._client.event
         async def on_message(message: Message):
