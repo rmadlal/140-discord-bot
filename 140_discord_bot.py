@@ -3,13 +3,11 @@ import logging
 import os
 import sys
 import time
-from collections import namedtuple
 from threading import Thread
 from typing import Final, Iterable, Optional
 
 import schedule
-from discord import Client, DiscordException, Emoji, Game, Message, RawMessageUpdateEvent, RawReactionActionEvent, \
-    TextChannel, User
+from discord import Client, Emoji, Game, Message, RawMessageUpdateEvent, TextChannel, User
 
 from utils import ocr_from_url
 
@@ -19,8 +17,6 @@ _140_IRL_CHANNEL_ID: Final = 329682110019534849
 RACES_CHANNEL_ID: Final = 187112305505468417
 ZET_ID: Final = 123160659130056708
 GAMEGUY_ID: Final = 93504619614834688
-
-Reaction = namedtuple('ReactionFromRaw', ['emoji', 'message', 'user'])
 
 
 class Bot:
@@ -38,22 +34,13 @@ class Bot:
         @self._client.event
         async def on_message(message: Message):
             if self._should_react_to_message(message):
-                await self._add_140_reaction(message)
+                await message.add_reaction(self._140_emoji)
 
         @self._client.event
         async def on_raw_message_edit(payload: RawMessageUpdateEvent):
             message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
             if self._should_react_to_message(message):
-                await self._add_140_reaction(message)
-
-        @self._client.event
-        async def on_raw_reaction_add(payload: RawReactionActionEvent):
-            message = await self._client.get_channel(payload.channel_id).fetch_message(payload.message_id)
-            user = self._client.get_user(payload.user_id)
-            reaction = Reaction(payload.emoji, message, user)
-
-            if self._should_react_to_reaction(reaction):
-                await self._add_140_reaction(reaction.message)
+                await message.add_reaction(self._140_emoji)
 
     @property
     def _140_emoji(self) -> Optional[Emoji]:
@@ -101,26 +88,6 @@ class Bot:
                 return True
         return False
 
-    @staticmethod
-    def _has_140_in_order(reaction: Reaction) -> bool:
-        one, four, zero = '1️⃣', '4️⃣', '0️⃣'
-        reaction_emojis = [reaction.emoji for reaction in reaction.message.reactions]
-        try:
-            return reaction_emojis.index(one) < reaction_emojis.index(four) < reaction_emojis.index(zero)
-        except ValueError:
-            return False
-
-    def _should_react_to_reaction(self, reaction: Reaction):
-        if reaction.user == self._client.user:
-            return False
-        return reaction.emoji == self._140_emoji or self._has_140_in_order(reaction)
-
-    async def _add_140_reaction(self, message: Message):
-        try:
-            await message.add_reaction(self._140_emoji)
-        except DiscordException as e:
-            print(f'Reaction failed: {e}', file=sys.stderr)
-
     def _ping_racers_every_day(self):
         # wrap Channel.send() in a non-async function because schedule doesn't work with async
         def send(message):
@@ -138,7 +105,7 @@ class Bot:
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG if '-d' in sys.argv or '--debug' in sys.argv else logging.ERROR)
+    logging.basicConfig(level=logging.DEBUG if any(arg in ('-d', '--debug') for arg in sys.argv) else logging.ERROR)
     Bot().run()
 
 
