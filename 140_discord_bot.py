@@ -1,35 +1,21 @@
-import asyncio
 import logging
 import os
 import sys
-import time
-from threading import Thread
 from typing import Final, Iterable, Optional
 
-import schedule
-from discord import Client, Emoji, Game, Message, RawMessageUpdateEvent, TextChannel, User
+from discord import Client, Emoji, Game, Message, RawMessageUpdateEvent
 
 from utils import ocr_from_url
 
 TOKEN: Final = os.getenv('BOT_TOKEN')
 _140_EMOJI_ID: Final = 447884638049009686
 _140_IRL_CHANNEL_ID: Final = 329682110019534849
-RACES_CHANNEL_ID: Final = 187112305505468417
-ZET_ID: Final = 123160659130056708
-GAMEGUY_ID: Final = 93504619614834688
 
 
 class Bot:
 
     def __init__(self):
         self._client = Client(activity=Game('140'))
-        self._ping_racers_thread = None
-
-        @self._client.event
-        async def on_ready():
-            if not (self._ping_racers_thread and self._ping_racers_thread.is_alive()):
-                self._ping_racers_thread = Thread(target=self._ping_racers_every_day)
-                self._ping_racers_thread.start()
 
         @self._client.event
         async def on_message(message: Message):
@@ -45,18 +31,6 @@ class Bot:
     @property
     def _140_emoji(self) -> Optional[Emoji]:
         return self._client.get_emoji(_140_EMOJI_ID)
-
-    @property
-    def _races_channel(self) -> Optional[TextChannel]:
-        return self._client.get_channel(RACES_CHANNEL_ID)
-
-    @property
-    def _zet(self) -> Optional[User]:
-        return self._client.get_user(ZET_ID)
-
-    @property
-    def _gameguy(self) -> Optional[User]:
-        return self._client.get_user(GAMEGUY_ID)
 
     @staticmethod
     def _potential_140_irl_sources(message: Message) -> Iterable[str]:
@@ -87,18 +61,6 @@ class Bot:
             if any('140' in s for s in self._potential_140_irl_sources(message)):
                 return True
         return False
-
-    def _ping_racers_every_day(self):
-        # wrap Channel.send() in a non-async function because schedule doesn't work with async
-        def send(message):
-            asyncio.run_coroutine_threadsafe(self._races_channel.send(message), self._client.loop)
-
-        schedule.every().day.at('16:00'). \
-            do(send, f'{self._zet.mention} {self._gameguy.mention} will you two race already?!')
-
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
 
     def run(self):
         self._client.run(TOKEN)
